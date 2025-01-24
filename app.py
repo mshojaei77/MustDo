@@ -1,21 +1,23 @@
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 from dataclasses import dataclass, asdict
 from typing import Optional
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                             QHBoxLayout, QPushButton, QLineEdit, QListWidget, 
-                            QListWidgetItem, QMenu)
+                            QListWidgetItem, QMenu, QMessageBox, QTimeEdit, QAbstractSpinBox)
+
 from PyQt5.QtCore import Qt, QTimer, QUrl
 from PyQt5.QtGui import QColor, QFont, QIcon
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
+import os
 
 @dataclass
 class Task:
     description: str
-    deadline: Optional[datetime] = None
-    completed: bool = False
-    notified: bool = False
+    deadline: Optional[datetime] = None  # Stores task due time
+    completed: bool = False              # Track completion status
+    notified: bool = False              # Track if alarm triggered
 
 class TaskManager:
     def __init__(self):
@@ -25,14 +27,14 @@ class TaskManager:
         deadline = None
         if deadline_str:
             try:
-                # Convert time string to datetime
                 now = datetime.now()
                 time = datetime.strptime(deadline_str, "%H:%M").time()
                 deadline = datetime.combine(now.date(), time)
                 
-                # If the time is earlier today, assume it's for tomorrow
+                # Fix: Handle month rollover properly
                 if deadline < now:
-                    deadline = deadline.replace(day=now.day + 1)
+                    tomorrow = now + timedelta(days=1)
+                    deadline = datetime.combine(tomorrow.date(), time)
             except ValueError:
                 return None
         
@@ -85,146 +87,186 @@ class MustDo(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MustDo")
-        self.setWindowIcon(QIcon('assets/app.png'))
-        self.setWindowFlags(Qt.WindowStaysOnTopHint)  # Makes window stay on top
-        
-        # Set application-wide font
-        app_font = QFont("Segoe UI", 10)  # Modern font, size 10
-        QApplication.setFont(app_font)
-        
-        # Main widget and layout
-        main_widget = QWidget()
-        self.setCentralWidget(main_widget)
-        layout = QVBoxLayout(main_widget)
-        
-        # Task input area
-        input_layout = QHBoxLayout()
-        self.task_input = QLineEdit()
-        self.task_input.setPlaceholderText("Enter task and deadline (e.g., Buy milk 09:07)")
-        self.task_input.returnPressed.connect(self.add_task)
-        add_button = QPushButton("Add Task")
-        add_button.clicked.connect(self.add_task)
-        input_layout.addWidget(self.task_input)
-        input_layout.addWidget(add_button)
-        
-        # Style the task input
-        self.task_input.setMinimumHeight(40)
-        self.task_input.setFont(QFont("Segoe UI", 11))
-        self.task_input.setStyleSheet("""
-            QLineEdit {
-                border: 2px solid #4682B4;
-                border-radius: 5px;
-                padding: 5px;
-                background-color: white;
-            }
-        """)
-        
-        # Style the add button
-        add_button.setMinimumHeight(40)
-        add_button.setFont(QFont("Segoe UI", 11, QFont.Medium))
-        add_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {self.COLORS['button'].name()};
-                color: white;
-                border: none;
-                border-radius: 5px;
-                padding: 5px 15px;
-            }}
-            QPushButton:hover {{
-                background-color: {self.COLORS['button'].darker(110).name()};
-            }}
-        """)
-        
-        # Add stop alarm button
-        self.stop_alarm_button = QPushButton("Stop Alarm")
-        self.stop_alarm_button.clicked.connect(self.stop_alarm)
-        self.stop_alarm_button.setVisible(False)  # Hidden by default
-        self.stop_alarm_button.setStyleSheet("""
-            QPushButton {
-                background-color: #FF4444;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                padding: 5px 15px;
-            }
-            QPushButton:hover {
-                background-color: #FF6666;
-            }
-        """)
-        
-        # Task list
-        self.task_list = QListWidget()
-        self.task_list.itemDoubleClicked.connect(self.complete_task)
-        self.task_list.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.task_list.customContextMenuRequested.connect(self.show_context_menu)
-        
-        # Style the task list
-        self.task_list.setFont(QFont("Segoe UI", 11))
-        self.task_list.setSpacing(2)  # Add space between items
-        self.task_list.setStyleSheet("""
-            QListWidget {
-                border: 2px solid #4682B4;
-                border-radius: 5px;
-                padding: 5px;
-            }
-            QListWidget::item {
-                padding: 8px;
-                border-radius: 3px;
-            }
-            QListWidget::item:selected {
-                background-color: #4682B4;
-                color: white;
-            }
-        """)
-        
-        # Add widgets to main layout
-        layout.addLayout(input_layout)
-        layout.addWidget(self.stop_alarm_button)
-        layout.addWidget(self.task_list)
-        
-        # Setup timer for checking deadlines
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.check_deadlines)
-        self.timer.start(60000)  # Check every minute
-        
-        # Setup media player for alarm
-        self.player = QMediaPlayer()
-        alarm_file_path = 'assets/alarm.mp3'
-        self.player.setMedia(QMediaContent(QUrl.fromLocalFile(alarm_file_path)))
-        self.player.mediaStatusChanged.connect(self.handle_media_status)
-        
-        # Load saved tasks
-        self.task_manager = TaskManager()
-        self.load_tasks()
-        
-        # Window settings
-        self.setGeometry(100, 100, 500, 700)  # Slightly larger window
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: white;
-            }
-        """)
-        self.show()
+        try:
+            self.setWindowTitle("MustDo")
+            self.setWindowIcon(QIcon('assets/app.png'))
+            self.setWindowFlags(Qt.WindowStaysOnTopHint)  # Makes window stay on top
+            
+            # Set application-wide font
+            app_font = QFont("Segoe UI", 10)  # Modern font, size 10
+            QApplication.setFont(app_font)
+            
+            # Main widget and layout
+            main_widget = QWidget()
+            self.setCentralWidget(main_widget)
+            layout = QVBoxLayout(main_widget)
+            
+            # Task input area
+            input_layout = QHBoxLayout()
+            self.task_input = QLineEdit()
+            self.task_input.setPlaceholderText("Enter task description")
+            self.task_input.returnPressed.connect(self.add_task)
+            
+            # Add time edit widget
+            self.time_edit = QTimeEdit()
+            self.time_edit.setDisplayFormat("HH:mm")
+            self.time_edit.setButtonSymbols(QAbstractSpinBox.NoButtons)  # Remove up and down buttons
+            self.time_edit.setTime(datetime.now().time())  # Set default time to current time
+            
+            # Set consistent height and styling for both input widgets
+            for widget in [self.task_input, self.time_edit]:
+                widget.setMinimumHeight(40)
+                widget.setFont(QFont("Segoe UI", 11))
+                widget.setStyleSheet("""
+                    QLineEdit, QTimeEdit {
+                        border: 2px solid #4682B4;
+                        border-radius: 5px;
+                        padding: 5px;
+                        background-color: white;
+                    }
+                """)
+            
+            add_button = QPushButton("Add Task")
+            add_button.clicked.connect(self.add_task)
+            input_layout.addWidget(self.task_input)
+            input_layout.addWidget(self.time_edit)
+            input_layout.addWidget(add_button)
+            
+            # Style the add button
+            add_button.setMinimumHeight(40)
+            add_button.setFont(QFont("Segoe UI", 11, QFont.Medium))
+            add_button.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {self.COLORS['button'].name()};
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    padding: 5px 15px;
+                }}
+                QPushButton:hover {{
+                    background-color: {self.COLORS['button'].darker(110).name()};
+                }}
+            """)
+            
+            # Add stop alarm button
+            self.stop_alarm_button = QPushButton("Stop Alarm")
+            self.stop_alarm_button.clicked.connect(self.stop_alarm)
+            self.stop_alarm_button.setVisible(False)  # Hidden by default
+            self.stop_alarm_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #FF4444;
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    padding: 5px 15px;
+                }
+                QPushButton:hover {
+                    background-color: #FF6666;
+                }
+            """)
+            
+            # Task list
+            self.task_list = QListWidget()
+            self.task_list.itemDoubleClicked.connect(self.complete_task)
+            self.task_list.setContextMenuPolicy(Qt.CustomContextMenu)
+            self.task_list.customContextMenuRequested.connect(self.show_context_menu)
+            
+            # Style the task list
+            self.task_list.setFont(QFont("Segoe UI", 11))
+            self.task_list.setSpacing(2)  # Add space between items
+            self.task_list.setStyleSheet("""
+                QListWidget {
+                    border: 2px solid #4682B4;
+                    border-radius: 5px;
+                    padding: 5px;
+                }
+                QListWidget::item {
+                    padding: 8px;
+                    border-radius: 3px;
+                }
+                QListWidget::item:selected {
+                    background-color: #4682B4;
+                    color: white;
+                }
+            """)
+            
+            # Add widgets to main layout
+            layout.addLayout(input_layout)
+            layout.addWidget(self.stop_alarm_button)
+            layout.addWidget(self.task_list)
+            
+            # Setup timer for checking deadlines
+            self.timer = QTimer()
+            self.timer.timeout.connect(self.check_deadlines)
+            self.timer.start(60000)  # Check every minute
+            
+            # Setup media player for alarm
+            self.player = QMediaPlayer()
+            
+            # Get the application base path (works both in dev and bundled mode)
+            if getattr(sys, 'frozen', False):
+                # Running in a bundle
+                base_path = sys._MEIPASS
+            else:
+                # Running in normal Python environment
+                base_path = os.path.dirname(os.path.abspath(__file__))
+            
+            alarm_file_path = os.path.join(base_path, 'assets', 'alarm.mp3')
+            icon_path = os.path.join(base_path, 'assets', 'app.png')
+            
+            # Set window icon with new path
+            self.setWindowIcon(QIcon(icon_path))
+            
+            if not os.path.exists(alarm_file_path):
+                QMessageBox.warning(
+                    self,
+                    "Resource Missing",
+                    f"Alarm sound file not found at: {alarm_file_path}\nPlease ensure the assets folder is present."
+                )
+            else:
+                self.player.setMedia(QMediaContent(QUrl.fromLocalFile(alarm_file_path)))
+            
+            self.player.mediaStatusChanged.connect(self.handle_media_status)
+            
+            # Load saved tasks
+            self.task_manager = TaskManager()
+            self.load_tasks()
+            
+            # Window settings
+            self.setGeometry(100, 100, 500, 700)  # Slightly larger window
+            self.setStyleSheet("""
+                QMainWindow {
+                    background-color: white;
+                }
+            """)
+            self.show()
+        except Exception as e:
+            QMessageBox.critical(self, "Initialization Error", f"Failed to initialize application: {str(e)}")
+            sys.exit(1)
     
     def add_task(self):
-        text = self.task_input.text().strip()
-        if not text:
+        description = self.task_input.text().strip()
+        if not description:
+            QMessageBox.warning(self, "Input Error", "Task description cannot be empty.")
             return
 
-        # Split into description and time
-        parts = text.rsplit(' ', 1)
-        description = parts[0]
-        deadline_str = parts[1] if len(parts) > 1 else None
-
-        task = self.task_manager.add_task(description, deadline_str)
+        # Get time from time edit widget
+        time = self.time_edit.time().toString("HH:mm")
+        
+        task = self.task_manager.add_task(description, time)
         if task:
             self.add_task_to_list(task)
             self.task_input.clear()
-            self.task_manager.save_tasks(self.TASK_FILE)
+            try:
+                self.task_manager.save_tasks(self.TASK_FILE)
+            except Exception as e:
+                QMessageBox.critical(self, "Save Error", f"Failed to save tasks: {str(e)}")
         else:
-            # Show error message to user (implement proper error handling)
-            pass
+            QMessageBox.warning(
+                self, 
+                "Invalid Time Format",
+                "Please use HH:MM format for the deadline (e.g., 09:30)."
+            )
 
     def add_task_to_list(self, task: Task):
         item = QListWidgetItem()
@@ -263,6 +305,7 @@ class MustDo(QMainWindow):
             item = self.task_list.item(i)
             task: Task = item.data(Qt.UserRole)
             
+            # Trigger alarm for overdue tasks
             if (task.deadline and 
                 not task.completed and 
                 not task.notified and 
@@ -270,21 +313,29 @@ class MustDo(QMainWindow):
                 task.notified = True
                 alarm_needed = True
                 self.update_item_display(item)
+                self.save_tasks()  # Fix: Save state when task becomes notified
         
         if alarm_needed:
             self.play_alarm()
         elif not any(not self.task_list.item(i).data(Qt.UserRole).completed 
                     and self.task_list.item(i).data(Qt.UserRole).notified 
                     for i in range(self.task_list.count())):
-            # If no uncompleted notified tasks remain, stop the alarm
             self.stop_alarm()
 
     def play_alarm(self):
-        self.player.play()
-        self.stop_alarm_button.setVisible(True)
-
-    def on_player_state_changed(self, state):
-        pass
+        try:
+            # Reset position before playing to ensure consistent behavior
+            self.player.setPosition(0)
+            self.player.play()
+            if self.player.error() != QMediaPlayer.NoError:
+                QMessageBox.warning(
+                    self,
+                    "Playback Error",
+                    f"Failed to play alarm sound: {self.player.errorString()}"
+                )
+            self.stop_alarm_button.setVisible(True)
+        except Exception as e:
+            QMessageBox.warning(self, "Alarm Error", f"Failed to play alarm: {str(e)}")
 
     def stop_alarm(self):
         self.player.stop()
@@ -315,22 +366,28 @@ class MustDo(QMainWindow):
                 self.delete_task(item)
     
     def delete_task(self, item):
-        # Get the task from the item
-        task = item.data(Qt.UserRole)
-        # Remove from task manager's list
-        self.task_manager.tasks.remove(task)
-        # Remove from UI
-        self.task_list.takeItem(self.task_list.row(item))
-        self.save_tasks()  # Save after deleting
+        try:
+            task = item.data(Qt.UserRole)
+            self.task_manager.tasks.remove(task)
+            self.task_list.takeItem(self.task_list.row(item))
+            self.save_tasks()
+        except Exception as e:
+            QMessageBox.critical(self, "Delete Error", f"Failed to delete task: {str(e)}")
 
     def save_tasks(self):
-        self.task_manager.save_tasks(self.TASK_FILE)
+        try:
+            self.task_manager.save_tasks(self.TASK_FILE)
+        except Exception as e:
+            QMessageBox.critical(self, "Save Error", f"Failed to save tasks: {str(e)}")
 
     def load_tasks(self):
-        self.task_manager.load_tasks(self.TASK_FILE)
-        # Add loaded tasks to the UI
-        for task in self.task_manager.tasks:
-            self.add_task_to_list(task)
+        try:
+            self.task_manager.load_tasks(self.TASK_FILE)
+            # Add loaded tasks to the UI
+            for task in self.task_manager.tasks:
+                self.add_task_to_list(task)
+        except Exception as e:
+            QMessageBox.critical(self, "Load Error", f"Failed to load tasks: {str(e)}")
 
     def handle_media_status(self, status):
         if status == QMediaPlayer.EndOfMedia:

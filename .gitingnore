@@ -21,5 +21,4 @@ build/
 *.coverage.*
 *.hypothesis/
 *.ipynb_checkpoints/
-# End Generation Here
-*build
+# End Generation Herebuild/
