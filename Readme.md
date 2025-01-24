@@ -1,6 +1,5 @@
-I'll create a comprehensive PyQt5 tutorial based on this task management application. I'll break it down into multiple sections for better understanding.
 
-# Complete PyQt5 Tutorial: Building a Task Management Application
+# PyQt5 Tutorial: Building a Task Management Application
 
 ## Table of Contents
 1. [Introduction](#introduction)
